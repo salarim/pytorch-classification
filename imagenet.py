@@ -23,6 +23,7 @@ import models.imagenet as customized_models
 
 from utils import Logger, AverageMeter, accuracy, mkdir_p, savefig
 from custom_dataset import CustomDataset
+from data_utils import DataConfig, DataLoaderConstructor
 
 # Models
 default_model_names = sorted(name for name in models.__dict__
@@ -93,6 +94,8 @@ parser.add_argument('--log-interval', type=int, default=1, metavar='N',
 parser.add_argument('--gpu-id', default='0', type=str,
                     help='id(s) for CUDA_VISIBLE_DEVICES')
 
+parser.add_argument('--new-data-loader', action='store_true', default=False)
+
 args = parser.parse_args()
 state = {k: v for k, v in args._get_kwargs()}
 
@@ -117,31 +120,45 @@ def main():
     if not os.path.isdir(args.checkpoint):
         mkdir_p(args.checkpoint)
 
-    # Data loading code
-    traindir = os.path.join(args.data, 'train')
-    valdir = os.path.join(args.data, 'val')
-    normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
-                                     std=[0.229, 0.224, 0.225])
+    if args.new_data_loader:
+        train_loader_creator_config = DataConfig(args, train=True, dataset='imagenet',
+                                                dataset_type='softmax', is_continual=True, 
+                                                batch_size=args.train_batch, data_path=args.data,
+                                                workers=args.workers, tasks=1, 
+                                                exemplar_size=0, oversample_ratio=0.0)
+        train_loader = DataLoaderConstructor(train_loader_creator_config).data_loaders[0]
 
-    train_loader = torch.utils.data.DataLoader(
-        datasets.ImageFolder(traindir, transforms.Compose([
-            transforms.RandomResizedCrop(224),
-            transforms.RandomHorizontalFlip(),
-            transforms.ToTensor(),
-            normalize,
-        ])),
-        batch_size=args.train_batch, shuffle=True,
-        num_workers=args.workers, pin_memory=True)
+        val_loader_creator_config = DataConfig(args, train=False, dataset='imagenet',
+                                                dataset_type='softmax', is_continual=True, 
+                                                batch_size=args.test_batch, data_path=args.data,
+                                                workers=args.workers, tasks=1, 
+                                                exemplar_size=0, oversample_ratio=0.0)
+        val_loader = DataLoaderConstructor(val_loader_creator_config).data_loaders[0]
+    else:
+        traindir = os.path.join(args.data, 'train')
+        valdir = os.path.join(args.data, 'val')
+        normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                        std=[0.229, 0.224, 0.225])
 
-    val_loader = torch.utils.data.DataLoader(
-        datasets.ImageFolder(valdir, transforms.Compose([
-            transforms.Resize(256),
-            transforms.CenterCrop(224),
-            transforms.ToTensor(),
-            normalize,
-        ])),
-        batch_size=args.test_batch, shuffle=False,
-        num_workers=args.workers, pin_memory=True)
+        train_loader = torch.utils.data.DataLoader(
+            datasets.ImageFolder(traindir, transforms.Compose([
+                transforms.RandomResizedCrop(224),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                normalize,
+            ])),
+            batch_size=args.train_batch, shuffle=True,
+            num_workers=args.workers, pin_memory=True)
+
+        val_loader = torch.utils.data.DataLoader(
+            datasets.ImageFolder(valdir, transforms.Compose([
+                transforms.Resize(256),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+                normalize,
+            ])),
+            batch_size=args.test_batch, shuffle=False,
+            num_workers=args.workers, pin_memory=True)
 
     # create model
     if args.pretrained:
